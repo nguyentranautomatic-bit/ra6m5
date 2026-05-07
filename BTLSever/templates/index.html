@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Air Quality Monitor - BKU</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f7f6; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h1 { color: #003366; margin-bottom: 5px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 25px 0; }
+        .card { padding: 15px; border-radius: 12px; background: #fff; border: 1px solid #eee; text-align: center; transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); }
+        .card h3 { font-size: 13px; color: #777; margin: 0; text-transform: uppercase; }
+        .card p { font-size: 26px; font-weight: bold; margin: 10px 0 0; }
+        .iaq-val { color: #3498db; }
+        .status-val { color: #2ecc71; font-size: 18px !important; }
+        .chart-box { margin-top: 30px; height: 400px; }
+     
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hệ Thống Giám Sát Chất Lượng Không Khí</h1>
+        <p style="color: #666;">BÀI TẬP LỚN MÔN LẬP TRÌNH HỆ THỐNG NHÚNG - Kit CK-RA6M5</p>
+        
+        <div class="grid">
+            <!-- Card IAQ -->
+            <div class="card" style="border-bottom: 4px solid #3498db;">
+                <h3>IAQ (Chỉ số CLKK)</h3>
+                <p id="iaq" class="iaq-val">--</p>
+            </div>
+            <!-- Card eCO2 -->
+            <div class="card" style="border-bottom: 4px solid #f1c40f;">
+                <h3>eCO2 (ppm)</h3>
+                <p id="eco2">--</p>
+            </div>
+            <!-- Card TVOC -->
+            <div class="card" style="border-bottom: 4px solid #1abc9c;">
+                <h3>TVOC (mg/m³)</h3>
+                <p id="tvoc">--</p>
+            </div>
+            <div id="card-pred" class="card" style="border: 2px solid #e74c3c; border-bottom: 4px solid #e74c3c;">
+            <h3>IAQ Dự đoán (10m tới)</h3>
+            <p id="val-pred">--</p>
+            </div>
+            <!-- Card Trạng thái hệ thống (Thay cho AI Dự đoán) -->
+            <div class="card" style="border-bottom: 4px solid #95a5a6;">
+                <h3>Trạng thái</h3>
+                <p id="status" class="status-val">Đang kết nối...</p>
+            </div>
+        </div>
+
+        <div class="chart-box">
+            <canvas id="mainChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        const mainChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [
+            { 
+                label: 'IAQ Thực tế', 
+                data: [], 
+                borderColor: '#3498db', 
+                backgroundColor: 'rgba(52, 152, 219, 0.1)', 
+                fill: true, 
+                tension: 0.4
+            },
+            { 
+                label: 'IAQ Dự đoán (10m tới)', 
+                data: [], 
+                borderColor: '#e74c3c', // Màu đỏ
+                borderDash: [5, 5],      // Nét đứt
+                backgroundColor: 'transparent', 
+                fill: false, 
+                tension: 0.4
+            }
+        ]
+    },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { 
+                    y: { 
+                        beginAtZero: false,
+                        title: { display: true, text: 'Chỉ số IAQ' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Thời gian' }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top' }
+                }
+            }
+        });
+function updateUI() {
+    fetch('/get-data')
+        .then(res => res.json())
+        .then(data => {
+            if (data.labels.length > 0) {
+                const lastIdx = data.iaq.length - 1;
+                
+                // 1. Cập nhật số liệu trên card (Thực tế + Dự đoán)
+                document.getElementById('iaq').innerText = data.iaq[lastIdx] || '--';
+                document.getElementById('eco2').innerText = data.eco2[lastIdx] || '--';
+                document.getElementById('tvoc').innerText = data.tvoc[lastIdx] || '--';
+                
+                // Cập nhật giá trị dự đoán vào ô "IAQ Dự đoán (10m tới)"
+                const predVal = data.pred[lastIdx];
+                document.getElementById('val-pred').innerText = predVal !== undefined ? predVal : '--';
+                document.getElementById('val-pred').style.color = "#e74c3c"; // Cho màu đỏ cho đồng bộ
+                
+                // 2. Cập nhật trạng thái
+                if (data.status) {
+                    document.getElementById('status').innerText = data.status;
+                    document.getElementById('status').style.color = (data.status === "RUNNING") ? "#2ecc71" : "#e67e22";
+                }
+
+                // 3. Cập nhật biểu đồ (Cả 2 đường)
+                mainChart.data.labels = data.labels;
+                mainChart.data.datasets[0].data = data.iaq;  // Đường thực tế
+                mainChart.data.datasets[1].data = data.pred; // Đường dự đoán
+                
+                mainChart.update('none'); 
+            }
+        })
+        .catch(err => console.error("Lỗi lấy dữ liệu:", err));
+}
+
+        // Cập nhật dữ liệu mỗi 2 giây
+        setInterval(updateUI, 2000);
+    </script>
+</body>
+</html>
